@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	stdError "errors"
 	"io"
+	"reflect"
 	"strings"
 
 	"github.com/TIC-DLUT/nano-claude-code/errors"
@@ -15,6 +16,7 @@ type CallRequest struct {
 	Model    string    `json:"model"`
 	Messages []Message `json:"messages"`
 	Stream   bool      `json:"stream"`
+	Tools    []Tool    `json:"tools"`
 }
 
 type CallResponse struct {
@@ -50,22 +52,40 @@ type CallStreamResponse struct {
 	} `json:"delta"`
 }
 
-func frontCall(httpClient *resty.Client, inBaseUrl string, apiKey string, model string, messages []Message, stream bool) (CallResponse, *resty.Response, error) {
+func frontCall(httpClient *resty.Client, inBaseUrl string, apiKey string, model string, messages []Message, stream bool, tools []Tool) (CallResponse, *resty.Response, error) {
+	// TODO: 合并同侧assistant和user
+
+	// TODO: 报错解析
+
 	// 防止 https://example/
 	baseurl := inBaseUrl
 	if inBaseUrl[len(inBaseUrl)-1] != '/' {
 		baseurl += "/"
 	}
 
+	for i := 0; i < len(messages); i++ {
+		if reflect.TypeOf(messages[i].Content) == reflect.TypeOf(ToolUseBlock{}) {
+			messages[i].Content = []any{
+				messages[i].Content,
+			}
+		}
+	}
+
 	res := CallResponse{}
+
+	requestBody := CallRequest{
+		Stream:   stream,
+		Model:    model,
+		Messages: messages,
+	}
+
+	if len(tools) != 0 {
+		requestBody.Tools = tools
+	}
 
 	httpRequest := httpClient.R().
 		SetHeader("x-api-key", apiKey).
-		SetBody(CallRequest{
-			Stream:   stream,
-			Model:    model,
-			Messages: messages,
-		})
+		SetBody(requestBody)
 
 	if stream {
 		httpRequest.SetDoNotParseResponse(true)
@@ -77,8 +97,8 @@ func frontCall(httpClient *resty.Client, inBaseUrl string, apiKey string, model 
 	return res, httpRes, err
 }
 
-func (c *ClaudeClient) Call(model string, messages []Message) ([]Message, error) {
-	res, _, err := frontCall(c.httpClient, c.baseUrl, c.apiKey, model, messages, false)
+func (c *ClaudeClient) Call(model string, messages []Message, tools []Tool) ([]Message, error) {
+	res, _, err := frontCall(c.httpClient, c.baseUrl, c.apiKey, model, messages, false, tools)
 	if err != nil {
 		return []Message{}, err
 	}
@@ -104,6 +124,16 @@ func (c *ClaudeClient) Call(model string, messages []Message) ([]Message, error)
 					Text: itemMap["text"].(string),
 				},
 			})
+		case "tool_use":
+			resMessages = append(resMessages, Message{
+				Role: ClaudeMessageRoleAssistant,
+				Content: ToolUseBlock{
+					Type:  "tool_use",
+					Name:  itemMap["name"].(string),
+					Input: itemMap["input"].(map[string]any),
+					ID:    itemMap["id"].(string),
+				},
+			})
 		default:
 			return []Message{}, errors.ClaudeClientCallFormatError
 		}
@@ -113,7 +143,7 @@ func (c *ClaudeClient) Call(model string, messages []Message) ([]Message, error)
 }
 
 func (c *ClaudeClient) CallStream(model string, messages []Message, dealFunc func(Message) bool) ([]Message, error) {
-	_, originHttpRes, err := frontCall(c.httpClient, c.baseUrl, c.apiKey, model, messages, true)
+	_, originHttpRes, err := frontCall(c.httpClient, c.baseUrl, c.apiKey, model, messages, true, []Tool{})
 	if err != nil {
 		return []Message{}, err
 	}
