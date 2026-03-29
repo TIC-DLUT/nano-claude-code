@@ -2,8 +2,8 @@ package claude
 
 import (
 	"bufio"
+	"encoding/json"
 	stdError "errors"
-	"fmt"
 	"io"
 	"strings"
 
@@ -35,6 +35,19 @@ type CallResponse struct {
 		} `json:"cache_creation"`
 		OutputTokens int `json:"output_tokens"`
 	} `json:"usage"`
+}
+
+type CallStreamResponse struct {
+	Type         string `json:"type"`
+	Index        int    `json:"index"`
+	ContentBlock struct {
+		Type string `json:"type"`
+		Text string `json:"text"`
+	} `json:"content_block"`
+	Delta struct {
+		Type string `json:"type"`
+		Text string `json:"text"`
+	} `json:"delta"`
 }
 
 func frontCall(httpClient *resty.Client, inBaseUrl string, apiKey string, model string, messages []Message, stream bool) (CallResponse, *resty.Response, error) {
@@ -99,14 +112,16 @@ func (c *ClaudeClient) Call(model string, messages []Message) ([]Message, error)
 	return resMessages, nil
 }
 
-func (c *ClaudeClient) CallStream(model string, messages []Message, dealFunc func(Message) bool) error {
+func (c *ClaudeClient) CallStream(model string, messages []Message, dealFunc func(Message) bool) ([]Message, error) {
 	_, originHttpRes, err := frontCall(c.httpClient, c.baseUrl, c.apiKey, model, messages, true)
 	if err != nil {
-		return err
+		return []Message{}, err
 	}
 
 	reader := bufio.NewReader(originHttpRes.Body)
 	defer originHttpRes.Body.Close()
+
+	resMessages := []Message{}
 
 	for {
 		eventStr, err := reader.ReadString('\n')
@@ -114,23 +129,60 @@ func (c *ClaudeClient) CallStream(model string, messages []Message, dealFunc fun
 			break
 		}
 		if err != nil {
-			return err
+			return []Message{}, err
 		}
 
 		if strings.Trim(eventStr, " ") == "" {
 			continue
 		}
 
-		if strings.HasPrefix(eventStr, "event: ") {
-			event := eventStr[7:]
-			fmt.Println("当前event：", event)
-		}
-
 		if strings.HasPrefix(eventStr, "data: ") {
 			data := eventStr[6:]
-			fmt.Println("当前data：", data)
+			dataDetail := CallStreamResponse{}
+			err := json.Unmarshal([]byte(data), &dataDetail)
+			if err != nil {
+				continue
+			}
+
+			switch dataDetail.Type {
+			case "content_block_start":
+				resMessages = append(resMessages, Message{
+					Role: ClaudeMessageRoleAssistant,
+				})
+				var content any
+				switch dataDetail.ContentBlock.Type {
+				case "text":
+					content = TextBlock{
+						Type: "text",
+						Text: "",
+					}
+				case "":
+					continue
+				}
+
+				resMessages[len(resMessages)-1].Content = content
+
+			case "content_block_delta":
+				continueFlag := true
+				switch resMessages[len(resMessages)-1].Content.(type) {
+				case TextBlock:
+					resMessages[len(resMessages)-1].Content = TextBlock{
+						Type: "text",
+						Text: resMessages[len(resMessages)-1].Content.(TextBlock).Text + dataDetail.Delta.Text,
+					}
+					continueFlag = dealFunc(Message{
+						Role: ClaudeMessageRoleAssistant,
+						Content: TextBlock{
+							Type: "text",
+							Text: dataDetail.Delta.Text,
+						},
+					})
+				}
+				if !continueFlag {
+					return resMessages, nil
+				}
+			}
 		}
-		fmt.Println(eventStr)
 	}
-	return nil
+	return resMessages, nil
 }
