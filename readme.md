@@ -35,6 +35,10 @@
 
 - [ ] day1：从零实现一个claude sdk
 
+## Other Version
+
+- [nano-claude-code-python](https://github.com/TIC-DLUT/nano-claude-code-python)
+
 ## 贡献
 
 由于这是一个教学项目，非常欢迎各位初学者参与进来！
