@@ -18,10 +18,11 @@ type TextBlock struct {
 }
 
 type ToolUseBlock struct {
-	Type  string         `json:"type"`
-	ID    string         `json:"id"`
-	Name  string         `json:"name"`
-	Input map[string]any `json:"input"`
+	Type        string         `json:"type"`
+	ID          string         `json:"id"`
+	Name        string         `json:"name"`
+	Input       map[string]any `json:"input"`
+	PartialJson string         `json:"-"`
 }
 
 type ToolResultBlock struct {

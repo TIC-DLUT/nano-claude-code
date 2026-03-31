@@ -51,12 +51,15 @@ type CallStreamResponse struct {
 	Type         string `json:"type"`
 	Index        int    `json:"index"`
 	ContentBlock struct {
+		ID   string `json:"id"`
+		Name string `json:"name"`
 		Type string `json:"type"`
 		Text string `json:"text"`
 	} `json:"content_block"`
 	Delta struct {
-		Type string `json:"type"`
-		Text string `json:"text"`
+		Type        string `json:"type"`
+		Text        string `json:"text"`
+		PartialJson string `json:"partial_json"`
 	} `json:"delta"`
 }
 
@@ -178,8 +181,8 @@ func (c *ClaudeClient) Call(model string, messages []Message, tools []Tool) ([]M
 	return resMessages, nil
 }
 
-func (c *ClaudeClient) CallStream(model string, messages []Message, dealFunc func(Message) bool) ([]Message, error) {
-	_, originHttpRes, err := frontCall(c.httpClient, c.baseUrl, c.apiKey, model, messages, true, []Tool{})
+func (c *ClaudeClient) CallStream(model string, messages []Message, tools []Tool, dealFunc func(Message) bool) ([]Message, error) {
+	_, originHttpRes, err := frontCall(c.httpClient, c.baseUrl, c.apiKey, model, messages, true, tools)
 	if err != nil {
 		return []Message{}, err
 	}
@@ -222,6 +225,12 @@ func (c *ClaudeClient) CallStream(model string, messages []Message, dealFunc fun
 						Type: "text",
 						Text: "",
 					}
+				case "tool_use":
+					content = ToolUseBlock{
+						Type: "tool_use",
+						ID:   dataDetail.ContentBlock.ID,
+						Name: dataDetail.ContentBlock.Name,
+					}
 				case "":
 					continue
 				}
@@ -243,11 +252,36 @@ func (c *ClaudeClient) CallStream(model string, messages []Message, dealFunc fun
 							Text: dataDetail.Delta.Text,
 						},
 					})
+				case ToolUseBlock:
+					changeContent := resMessages[len(resMessages)-1].Content.(ToolUseBlock)
+					changeContent.PartialJson += dataDetail.Delta.PartialJson
+					resMessages[len(resMessages)-1].Content = changeContent
+					continueFlag = dealFunc(Message{
+						Role: ClaudeMessageRoleAssistant,
+						Content: ToolUseBlock{
+							Type:        "tool_use",
+							ID:          changeContent.ID,
+							Name:        changeContent.Name,
+							PartialJson: dataDetail.Delta.PartialJson,
+						},
+					})
 				}
 				if !continueFlag {
 					return resMessages, nil
 				}
 			}
+		}
+	}
+	for i := 0; i < len(resMessages); i++ {
+		if reflect.TypeOf(resMessages[i].Content) == reflect.TypeOf(ToolUseBlock{}) {
+			changeBlock := resMessages[i].Content.(ToolUseBlock)
+			inputMap := make(map[string]any)
+			err := json.Unmarshal([]byte(changeBlock.PartialJson), &inputMap)
+			if err != nil {
+				return resMessages, errors.ClaudeToolStreamPartParseError
+			}
+			changeBlock.Input = inputMap
+			resMessages[i].Content = changeBlock
 		}
 	}
 	return resMessages, nil
