@@ -33,7 +33,7 @@
 
 ## 目录
 
-- [ ] day1：从零实现一个claude sdk
+- [x] [day1：从零实现一个claude sdk](./docs/day1.md)
 
 ## Other Version
 
