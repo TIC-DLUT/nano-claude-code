@@ -12,6 +12,14 @@ import (
 	"resty.dev/v3"
 )
 
+type CallError struct {
+	Error struct {
+		Type    string `json:"type"`
+		Message string `json:"message"`
+	} `json:"error"`
+	Type string `json:"type"`
+}
+
 type CallRequest struct {
 	Model    string    `json:"model"`
 	Messages []Message `json:"messages"`
@@ -53,24 +61,42 @@ type CallStreamResponse struct {
 }
 
 func frontCall(httpClient *resty.Client, inBaseUrl string, apiKey string, model string, messages []Message, stream bool, tools []Tool) (CallResponse, *resty.Response, error) {
-	// TODO: 合并同侧assistant和user
-
-	// TODO: 修改string全部变成TextBlock
-
-	// TODO: 报错解析
-
 	// 防止 https://example/
 	baseurl := inBaseUrl
 	if inBaseUrl[len(inBaseUrl)-1] != '/' {
 		baseurl += "/"
 	}
 
-	for i := 0; i < len(messages); i++ {
-		if reflect.TypeOf(messages[i].Content) == reflect.TypeOf(ToolUseBlock{}) {
-			messages[i].Content = []any{
-				messages[i].Content,
-			}
+	toolHashMap := make(map[string]bool)
+	for _, item := range tools {
+		_, ok := toolHashMap[item.Name]
+		if ok && toolHashMap[item.Name] == true {
+			return CallResponse{}, nil, errors.ClaudeToolRepeat
 		}
+		toolHashMap[item.Name] = true
+	}
+
+	currentRole := ClaudeMessageRoleUser
+	requestMessages := []Message{}
+
+	if len(messages) > 0 {
+		currentRole = messages[0].Role
+		requestMessages = append(requestMessages, Message{Role: currentRole, Content: []any{}})
+	}
+
+	for i := 0; i < len(messages); i++ {
+		if messages[i].Role != currentRole {
+			currentRole = messages[i].Role
+			requestMessages = append(requestMessages, Message{Role: currentRole, Content: []any{}})
+		}
+
+		newContent := requestMessages[len(requestMessages)-1].Content.([]any)
+		if reflect.TypeOf(messages[i].Content) == reflect.TypeOf(SingleStringMessage("")) {
+			newContent = append(newContent, TextBlock{Type: "text", Text: string(messages[i].Content.(SingleStringMessage))})
+		} else {
+			newContent = append(newContent, messages[i].Content)
+		}
+		requestMessages[len(requestMessages)-1].Content = newContent
 	}
 
 	res := CallResponse{}
@@ -78,7 +104,7 @@ func frontCall(httpClient *resty.Client, inBaseUrl string, apiKey string, model 
 	requestBody := CallRequest{
 		Stream:   stream,
 		Model:    model,
-		Messages: messages,
+		Messages: requestMessages,
 	}
 
 	if len(tools) != 0 {
@@ -95,6 +121,14 @@ func frontCall(httpClient *resty.Client, inBaseUrl string, apiKey string, model 
 		httpRequest.SetResult(&res)
 	}
 	httpRes, err := httpRequest.Post(baseurl + "v1/messages")
+
+	if httpRes.StatusCode() != 200 {
+		httpBody, _ := io.ReadAll(httpRes.Body)
+		defer httpRes.Body.Close()
+		errMessage := CallError{}
+		json.Unmarshal(httpBody, &errMessage)
+		return res, httpRes, stdError.New(errMessage.Error.Message)
+	}
 
 	return res, httpRes, err
 }

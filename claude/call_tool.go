@@ -42,6 +42,7 @@ func NewTool(name string, description string, properties map[string]ToolProperty
 
 func (c *ClaudeClient) CallTools(model string, messages []Message, tools []Tool) ([]Message, error) {
 	var err error = nil
+	realresMessages := []Message{}
 	resMessages := []Message{}
 	for {
 		resMessages, err = c.Call(model, messages, tools)
@@ -50,6 +51,7 @@ func (c *ClaudeClient) CallTools(model string, messages []Message, tools []Tool)
 		}
 
 		messages = append(messages, resMessages...)
+		realresMessages = append(realresMessages, resMessages...)
 
 		continueFlag := false
 
@@ -64,15 +66,16 @@ func (c *ClaudeClient) CallTools(model string, messages []Message, tools []Tool)
 						content = tool.Func(toolUserItem.Input)
 					}
 				}
-				messages = append(messages, Message{
+				toolResultMessage := Message{
 					Role: ClaudeMessageRoleUser,
-					Content: []any{ToolResultBlock{
+					Content: ToolResultBlock{
 						Type:      "tool_result",
 						ToolUseID: toolUserItem.ID,
 						Content:   content,
-					}},
-				})
-
+					},
+				}
+				messages = append(messages, toolResultMessage)
+				realresMessages = append(realresMessages, toolResultMessage)
 			}
 		}
 
@@ -80,5 +83,5 @@ func (c *ClaudeClient) CallTools(model string, messages []Message, tools []Tool)
 			break
 		}
 	}
-	return resMessages, err
+	return realresMessages, err
 }
