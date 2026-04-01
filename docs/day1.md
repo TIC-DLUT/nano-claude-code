@@ -241,6 +241,8 @@ c.httpClient.R().
 	Post(baseurl + "v1/message")
 ````
 
+> ❗注意此处的 **url** ，openai协议下baseurl的**后缀**与 claude 协议是不同的，读者务必注意。
+
 为了接收数据，我们根据官方文档的定义创建一个用于接受数据的结构体 `CallResponse` ，然后 `SetResult(&CallResponse{})` 即可自动解析结果。
 
 ````go
@@ -666,7 +668,8 @@ type Tool struct {
 		Properties map[string]ToolPropertyDetail `json:"properties"`
 		Required   []string                      `json:"required"`
 	} `json:"input_schema"`
-	Func func(input map[string]any) string `json:"-"` // 这里是工具的运行函数，不需要 json 化
+    // 这里是工具的运行函数，不属于官方的 Tool 定义，但是我们需要其用来方便的运行 Tool 函数，不需要 json 化
+	Func func(input map[string]any) string `json:"-"` 
 }
 // 输入参数的具体内容
 type ToolPropertyDetail struct {
@@ -677,10 +680,11 @@ type ToolPropertyDetail struct {
 
 创建新的文件，将上面的定义存入。我们就有了一个工具的定义。
 
-现在我们提供一个接口创建新的工具
+现在我们提供一个接口创建新的工具。对于用户来说，一个新的 `Tool` 创建，需要有工具的名称，描述，需要传入的参数，以及运行的 Tool 函数。即如下结果。
 ````go
 // claude/call_tool.go
 func NewTool(name string, description string, properties map[string]ToolPropertyDetail, required []string, toolFunc func(input map[string]any) string) (Tool, error) {
+    // name 和 description 是必须不能为空的。
 	if name == "" || description == "" {
 		return Tool{}, errors.ClaudeCreateToolEmptyError
 	}
@@ -727,17 +731,44 @@ type CallRequest struct {
 	Tools    []Tool    `json:"tools"`
     // ...
 }
+type CallStreamResponse struct {
+    // ...
+	ContentBlock struct {
+		ID   string `json:"id"`
+		Name string `json:"name"`
+        // ...
+	} `json:"content_block"`
+	Delta struct {
+        // ...
+		PartialJson string `json:"partial_json"`
+	} `json:"delta"`
+}
 func frontCall(httpClient *resty.Client, inBaseUrl string, apiKey string, model string, messages []Message, stream bool, tools []Tool) (CallResponse, *resty.Response, error) {
     // ❗ 注意上面的参数传入了 tools
     // ...
 
-    // 此处将所有的 Tool Use Block 转化为数组整合，因为协议中只包含 string 和对应类型的数组，而不能使用单个 Block
+    // ❗
+    // 此处将所有的同 Role 的 Content 合并，同时避免出现在 Message 中出现单个 ContentBlock 的错误情况
+	currentRole := ClaudeMessageRoleUser
+	requestMessages := []Message{}
+	if len(messages) > 0 {
+		currentRole = messages[0].Role
+		requestMessages = append(requestMessages, Message{Role: currentRole, Content: []any{}})
+	}
 	for i := 0; i < len(messages); i++ {
-		if reflect.TypeOf(messages[i].Content) == reflect.TypeOf(ToolUseBlock{}) {
-			messages[i].Content = []any{
-				messages[i].Content,
-			}
+		if messages[i].Role != currentRole {
+			currentRole = messages[i].Role
+			requestMessages = append(requestMessages, Message{Role: currentRole, Content: []any{}})
 		}
+
+		newContent := requestMessages[len(requestMessages)-1].Content.([]any)
+        // 统一格式，将 SingleStringMessage 也转化为 TextBlock
+		if reflect.TypeOf(messages[i].Content) == reflect.TypeOf(SingleStringMessage("")) {
+			newContent = append(newContent, TextBlock{Type: "text", Text: string(messages[i].Content.(SingleStringMessage))})
+		} else {
+			newContent = append(newContent, messages[i].Content)
+		}
+		requestMessages[len(requestMessages)-1].Content = newContent
 	}
 
 	res := CallResponse{}
@@ -755,7 +786,7 @@ func frontCall(httpClient *resty.Client, inBaseUrl string, apiKey string, model 
     // ...
 }
 func (c *ClaudeClient) Call(model string, messages []Message, tools []Tool) ([]Message, error) {
-// ❗ 注意上面的参数传入了 tools
+// ❗ 注意上面的参数传入了 tools，在 CallStream 中也要进行相应的修改，
 // ...
     switch messageType {
     // ...
@@ -769,9 +800,69 @@ func (c *ClaudeClient) Call(model string, messages []Message, tools []Tool) ([]M
             ID:    itemMap["id"].(string),
         },
     })
+	}
     // ...
 // ...
 }
+func (c *ClaudeClient) CallStream(model string, messages []Message, tools []Tool, dealFunc func(Message) bool) ([]Message, error) {
+	// ...
+    switch dataDetail.Type {
+    // ...
+    case "content_block_start":
+        // ...
+        switch dataDetail.ContentBlock.Type {
+        // ...
+        case "tool_use":
+            // 新建一个 ToolUseBlock，并记录 ID 和 Name（仅在 start 时才出现）
+            content = ToolUseBlock{
+                Type: "tool_use",
+                ID:   dataDetail.ContentBlock.ID,
+                Name: dataDetail.ContentBlock.Name,
+            }
+        }
+
+        resMessages[len(resMessages)-1].Content = content
+
+    case "content_block_delta":
+        continueFlag := true
+        switch resMessages[len(resMessages)-1].Content.(type) {
+            // ...
+        case ToolUseBlock:
+            // 拼接参数string
+            changeContent := resMessages[len(resMessages)-1].Content.(ToolUseBlock)
+            changeContent.PartialJson += dataDetail.Delta.PartialJson
+            resMessages[len(resMessages)-1].Content = changeContent
+            continueFlag = dealFunc(Message{
+                Role: ClaudeMessageRoleAssistant,
+                Content: ToolUseBlock{
+                    Type:        "tool_use",
+                    ID:          changeContent.ID,
+                    Name:        changeContent.Name,
+                    PartialJson: dataDetail.Delta.PartialJson,
+                },
+            })
+        }
+        if !continueFlag {
+            return resMessages, nil
+        }
+    }
+    // 由于我们只进行了输入参数的字符串拼接，现在 Tool 的输入仍是一段 string，无法在 Func 中使用
+    // 所以我们在这里将所有的 PartialJson 转化为 map[string]any 的类型传入 Tool 函数
+	for i := 0; i < len(resMessages); i++ {
+		if reflect.TypeOf(resMessages[i].Content) == reflect.TypeOf(ToolUseBlock{}) {
+			changeBlock := resMessages[i].Content.(ToolUseBlock)
+			inputMap := make(map[string]any)
+			err := json.Unmarshal([]byte(changeBlock.PartialJson), &inputMap)
+			if err != nil {
+				return resMessages, errors.ClaudeToolStreamPartParseError
+			}
+			changeBlock.Input = inputMap
+			resMessages[i].Content = changeBlock
+		}
+	}
+	return resMessages, nil
+}
+
 ````
 
 #### `func CallTools` 
@@ -782,6 +873,8 @@ func (c *ClaudeClient) Call(model string, messages []Message, tools []Tool) ([]M
 func (c *ClaudeClient) CallTools(model string, messages []Message, tools []Tool) ([]Message, error) {
 	var err error = nil
     // 新的消息
+    realMessage := []Message{}
+    // 新的单次返回的新消息
 	resMessages := []Message{}
 	for {
 		resMessages, err = c.Call(model, messages, tools)
@@ -791,13 +884,16 @@ func (c *ClaudeClient) CallTools(model string, messages []Message, tools []Tool)
 
         // 将新消息拼接在原来的消息之后
 		messages = append(messages, resMessages...)
+		realresMessages = append(realresMessages, resMessages...)
 
-        // 控制循环，仍在 tool call 过程
+        // 控制循环，仍在 tool call 过程则持续循环
 		continueFlag := false
 
 		for _, item := range resMessages {
 			switch item.Content.(type) {
 				// 具体 tool use 内容
+                messages = append(messages, toolResultMessage)
+                realresMessages = append(realresMessages, toolResultMessage)
 			}
 		}
 
@@ -805,7 +901,7 @@ func (c *ClaudeClient) CallTools(model string, messages []Message, tools []Tool)
 			break
 		}
 	}
-	return resMessages, err
+	return realMessage, err
 }
 ````
 
@@ -824,14 +920,14 @@ switch item.Content.(type) {
         }
     }
     // 返回实际运行结果
-    messages = append(messages, Message{
+    toolResultMessage := Message{
         Role: ClaudeMessageRoleUser,
-        Content: []any{ToolResultBlock{
+        Content: ToolResultBlock{
             Type:      "tool_result",
             ToolUseID: toolUserItem.ID,
             Content:   content,
-        }},
-    })
+        },
+    }
 }
 ````
 
@@ -841,6 +937,7 @@ switch item.Content.(type) {
 // claude/call_tool.go
 func (c *ClaudeClient) CallTools(model string, messages []Message, tools []Tool) ([]Message, error) {
 	var err error = nil
+    realMessage := []Message{}
 	resMessages := []Message{}
 	for {
 		resMessages, err = c.Call(model, messages, tools)
@@ -849,6 +946,7 @@ func (c *ClaudeClient) CallTools(model string, messages []Message, tools []Tool)
 		}
 
 		messages = append(messages, resMessages...)
+		realresMessages = append(realresMessages, resMessages...)
 
 		continueFlag := false
 
@@ -863,15 +961,17 @@ func (c *ClaudeClient) CallTools(model string, messages []Message, tools []Tool)
 						content = tool.Func(toolUserItem.Input)
 					}
 				}
-				messages = append(messages, Message{
-					Role: ClaudeMessageRoleUser,
-					Content: []any{ToolResultBlock{
-						Type:      "tool_result",
-						ToolUseID: toolUserItem.ID,
-						Content:   content,
-					}},
-				})
+                toolResultMessage := Message{
+                    Role: ClaudeMessageRoleUser,
+                    Content: ToolResultBlock{
+                        Type:      "tool_result",
+                        ToolUseID: toolUserItem.ID,
+                        Content:   content,
+                    },
+                }
 
+                messages = append(messages, toolResultMessage)
+                realresMessages = append(realresMessages, toolResultMessage)
 			}
 		}
 
@@ -882,6 +982,102 @@ func (c *ClaudeClient) CallTools(model string, messages []Message, tools []Tool)
 	return resMessages, err
 }
 ````
+
+#### `func CallStreamTools` 
+
+流式的CallTool思路与非流式相同，甚至没有任何区别。并且在运行Tool时的逻辑完全一样，那么我们可以先将这一部分再次封装，用来专门运行工具函数并返回循环是否继续，下次请求的 message，新增的 toolResultMessage。
+
+````go
+// claude/call_tool.go
+func toolCall(tools []Tool, messages []Message, resMessages []Message) (bool, []Message, []Message) {
+	continueFlag := false
+	toolMessages := []Message{}
+	for _, item := range resMessages {
+		switch item.Content.(type) {
+		case ToolUseBlock:
+			continueFlag = true
+			toolUserItem := item.Content.(ToolUseBlock)
+			content := ""
+			for _, tool := range tools {
+				if tool.Name == toolUserItem.Name {
+					content = tool.Func(toolUserItem.Input)
+				}
+			}
+			toolResultMessage := Message{
+				Role: ClaudeMessageRoleUser,
+				Content: ToolResultBlock{
+					Type:      "tool_result",
+					ToolUseID: toolUserItem.ID,
+					Content:   content,
+				},
+			}
+			messages = append(messages, toolResultMessage)
+			toolMessages = append(toolMessages, toolResultMessage)
+		}
+	}
+	return continueFlag, messages, toolMessages
+}
+````
+
+这样封装之后，原先的 `CallTools` `CallStreamTools` 的逻辑就只剩下循环 `Call` / `CallStream` ，然后拼接所有新增信息，并控制循环进行。
+
+````go
+// claude/call_tool.go
+// 原先的 CallTools 与该函数基本相同，只需要将 CallStream 换为 Call，调整相关参数即可。
+func (c *ClaudeClient) CallStreamTools(model string, messages []Message, tools []Tool, dealFunc func(Message) bool) ([]Message, error) {
+	realResMessages := []Message{}
+	for {
+		resMessages, err := c.CallStream(model, messages, tools, dealFunc)
+		messages = append(messages, resMessages...)
+		realResMessages = append(realResMessages, resMessages...)
+		if err != nil {
+			return resMessages, err
+		}
+		cotinuesFlag := false
+		ToolMessages := []Message{}
+		cotinuesFlag, messages, ToolMessages = toolCall(tools, messages, resMessages)
+		realResMessages = append(realResMessages, ToolMessages...)
+		if !cotinuesFlag {
+			break
+		}
+	}
+	return realResMessages, nil
+}
+````
+
+
+
+### 解析http错误
+
+到这里为止，我们已经将我们需要用来做 agent 的所有协议封装好了。但是，在 `frontCall` 中，我们仅仅提取了返回的响应体，如果我们的请求出错了，我们无法获取到任何信息。因此，我们需要在请求出错时解析返回的错误。当响应码不为200时，就会解析错误信息并报错。
+
+````go
+// claude/call.go
+type CallError struct {
+	Error struct {
+		Type    string `json:"type"`
+		Message string `json:"message"`
+	} `json:"error"`
+	Type string `json:"type"`
+}
+func frontCall(httpClient *resty.Client, inBaseUrl string, apiKey string, model string, messages []Message, stream bool, tools []Tool) (CallResponse, *resty.Response, error) {
+	// ...
+	if httpRes.StatusCode() != 200 {
+		httpBody, _ := io.ReadAll(httpRes.Body)
+		defer httpRes.Body.Close()
+		errMessage := CallError{}
+		json.Unmarshal(httpBody, &errMessage)
+		return res, httpRes, stdError.New(errMessage.Error.Message)
+	}
+    return res, httpRes, err
+}
+````
+
+## 总结
+
+至此，我们第一天的内容就结束了。（可喜可贺）
+
+这一天的内容相当充实，从网络请求封装，到一次 `Message` 调用封装，再到工具调用封装，我们封装了一个真正属于我们自己的 claude 包，也迈出了 claude code 的第一步。
 
 ## 最终文件结构
 
@@ -898,8 +1094,6 @@ nano-claude-code
 │      message.go
 ├─cmd
 │      main.go
-├─docs
-│      day1.md
 └─errors
         claude.go
 ````
