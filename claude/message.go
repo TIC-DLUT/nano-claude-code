@@ -30,3 +30,10 @@ type ToolResultBlock struct {
 	Content   string `json:"content"`
 	ToolUseID string `json:"tool_use_id"`
 }
+
+// 思考消息处理
+type ThinkingBlock struct {
+	Type      string `json:"type"`
+	Thinking  string `json:"thinking"`
+	Signature string `json:"signature"`
+}

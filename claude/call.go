@@ -51,15 +51,18 @@ type CallStreamResponse struct {
 	Type         string `json:"type"`
 	Index        int    `json:"index"`
 	ContentBlock struct {
-		ID   string `json:"id"`
-		Name string `json:"name"`
-		Type string `json:"type"`
-		Text string `json:"text"`
+		ID       string `json:"id"`
+		Name     string `json:"name"`
+		Type     string `json:"type"`
+		Text     string `json:"text"`
+		Thinking string `json:"thinking"`
 	} `json:"content_block"`
 	Delta struct {
-		Type        string `json:"type"`
-		Text        string `json:"text"`
-		PartialJson string `json:"partial_json"`
+		Type           string `json:"type"`
+		Text           string `json:"text"`
+		Thinking       string `json:"thinking"`
+		PartialJson    string `json:"partial_json"`
+		SignatureDelta string `json:"signature_delta"`
 	} `json:"delta"`
 }
 
@@ -163,6 +166,16 @@ func (c *ClaudeClient) Call(model string, messages []Message, tools []Tool) ([]M
 					Text: itemMap["text"].(string),
 				},
 			})
+		//增加了思考的返回
+		case "thinking":
+			resMessages = append(resMessages, Message{
+				Role: ClaudeMessageRoleAssistant,
+				Content: ThinkingBlock{
+					Type:      "thinking",
+					Thinking:  itemMap["thinking"].(string),
+					Signature: itemMap["signature"].(string),
+				},
+			})
 		case "tool_use":
 			resMessages = append(resMessages, Message{
 				Role: ClaudeMessageRoleAssistant,
@@ -225,6 +238,12 @@ func (c *ClaudeClient) CallStream(model string, messages []Message, tools []Tool
 						Type: "text",
 						Text: "",
 					}
+				case "thinking":
+					content = ThinkingBlock{
+						Type:      "thinking",
+						Thinking:  "",
+						Signature: "",
+					}
 				case "tool_use":
 					content = ToolUseBlock{
 						Type: "tool_use",
@@ -250,6 +269,20 @@ func (c *ClaudeClient) CallStream(model string, messages []Message, tools []Tool
 						Content: TextBlock{
 							Type: "text",
 							Text: dataDetail.Delta.Text,
+						},
+					})
+				case ThinkingBlock:
+					resMessages[len(resMessages)-1].Content = ThinkingBlock{
+						Type:      "thinking",
+						Signature: dataDetail.Delta.SignatureDelta,
+						Thinking:  resMessages[len(resMessages)-1].Content.(ThinkingBlock).Thinking + dataDetail.Delta.Thinking,
+					}
+					continueFlag = dealFunc(Message{
+						Role: ClaudeMessageRoleAssistant,
+						Content: ThinkingBlock{
+							Type:      "thinking",
+							Thinking:  dataDetail.Delta.Thinking,
+							Signature: dataDetail.Delta.SignatureDelta,
 						},
 					})
 				case ToolUseBlock:
