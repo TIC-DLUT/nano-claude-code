@@ -1,12 +1,8 @@
-# 从零开始的Claude Code(一)
+# day1：从零实现一个claude sdk
+
+## 该day对应代码提交到commit: 59016bac8f3e2c2bea47edc679dd9c8a7d2ec9be 为止
 
 本教程致力于让读者真正的明白一个AI应用是如何实现的，因此我们选择从自行撰写一个 claude 协议包开始到一个能真正实现 vibe coding 的 claude code agent。
-
-> 本章所用内容：
->
-> Claude协议官方文档： [Create a Message - Claude API Reference](https://platform.claude.com/docs/en/api/messages/create) 
->
-> golang网络请求包官方文档： [Welcome | Resty](https://resty.dev/) 
 
 ## 程序入口
 
@@ -1098,3 +1094,11 @@ nano-claude-code
         claude.go
 ````
 
+## 参考文档
+
+- Claude协议官方文档： [Create a Message - Claude API Reference](https://platform.claude.com/docs/en/api/messages/create) 
+- golang网络请求包Resty官方文档： [Welcome | Resty](https://resty.dev/) 
+
+## 关联good first issues列表
+
+- [支持发送image message](https://github.com/TIC-DLUT/nano-claude-code/issues/2)
