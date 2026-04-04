@@ -12,6 +12,8 @@ type Tool struct {
 		Properties map[string]ToolPropertyDetail `json:"properties"`
 		Required   []string                      `json:"required"`
 	} `json:"input_schema"`
+	// 这里是工具的运行函数，不属于官方的 Tool 定义，但是我们需要其用来方便的运行 Tool 函数，不需要 json 化
+	// 否则会出现 400 请求出错
 	Func func(input map[string]any) string `json:"-"`
 }
 
@@ -21,6 +23,7 @@ type ToolPropertyDetail struct {
 }
 
 func NewTool(name string, description string, properties map[string]ToolPropertyDetail, required []string, toolFunc func(input map[string]any) string) (Tool, error) {
+	// name 和 description 不能为空
 	if name == "" || description == "" {
 		return Tool{}, errors.ClaudeCreateToolEmptyError
 	}
@@ -45,6 +48,7 @@ func toolCall(tools []Tool, messages []Message, resMessages []Message) (bool, []
 	continueFlag := false
 	toolMessages := []Message{}
 	for _, item := range resMessages {
+		// 将消息中的 ToolUse 请求执行，并将结果添加在 toolMessages 中
 		switch item.Content.(type) {
 		case ToolUseBlock:
 			continueFlag = true
@@ -72,8 +76,9 @@ func toolCall(tools []Tool, messages []Message, resMessages []Message) (bool, []
 
 func (c *ClaudeClient) CallTools(model string, messages []Message, tools []Tool) ([]Message, error) {
 	var err error = nil
-	realresMessages := []Message{}
+	realResMessages := []Message{}
 	resMessages := []Message{}
+	// 循环调用，因为模型可能在两次或多次请求中均需要使用 Tools
 	for {
 		resMessages, err = c.Call(model, messages, tools)
 		if err != nil {
@@ -81,34 +86,38 @@ func (c *ClaudeClient) CallTools(model string, messages []Message, tools []Tool)
 		}
 
 		messages = append(messages, resMessages...)
-		realresMessages = append(realresMessages, resMessages...)
+		realResMessages = append(realResMessages, resMessages...)
 
+		// 执行 ToolUse
 		continueFlag := false
-		toolmessages := []Message{}
-		continueFlag, messages, toolmessages = toolCall(tools, messages, resMessages)
-		realresMessages = append(realresMessages, toolmessages...)
+		toolMessages := []Message{}
+		continueFlag, messages, toolMessages = toolCall(tools, messages, resMessages)
+		realResMessages = append(realResMessages, toolMessages...)
 
 		if !continueFlag {
 			break
 		}
 	}
-	return realresMessages, err
+	return realResMessages, err
 }
 
 func (c *ClaudeClient) CallStreamTools(model string, messages []Message, tools []Tool, dealFunc func(Message) bool) ([]Message, error) {
 	realResMessages := []Message{}
+	// 循环调用，因为模型可能在两次或多次请求中均需要使用 Tools
 	for {
 		resMessages, err := c.CallStream(model, messages, tools, dealFunc)
-		messages = append(messages, resMessages...)
-		realResMessages = append(realResMessages, resMessages...)
 		if err != nil {
 			return resMessages, err
 		}
-		cotinuesFlag := false
-		ToolMessages := []Message{}
-		cotinuesFlag, messages, ToolMessages = toolCall(tools, messages, resMessages)
-		realResMessages = append(realResMessages, ToolMessages...)
-		if !cotinuesFlag {
+		messages = append(messages, resMessages...)
+		realResMessages = append(realResMessages, resMessages...)
+
+		// 执行 ToolUse
+		continueFlag := false
+		toolMessages := []Message{}
+		continueFlag, messages, toolMessages = toolCall(tools, messages, resMessages)
+		realResMessages = append(realResMessages, toolMessages...)
+		if !continueFlag {
 			break
 		}
 	}

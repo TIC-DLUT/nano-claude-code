@@ -14,6 +14,7 @@ type ClaudeClient struct {
 }
 
 func NewClient(baseurl string, apikey string) (*ClaudeClient, error) {
+	// 确保 baseurl 合法
 	if !strings.HasPrefix(baseurl, "http://") && !strings.HasPrefix(baseurl, "https://") {
 		return nil, errors.CreateClaudeClientBaseUrlError
 	}

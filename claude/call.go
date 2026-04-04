@@ -67,12 +67,13 @@ type CallStreamResponse struct {
 }
 
 func frontCall(httpClient *resty.Client, inBaseUrl string, apiKey string, model string, messages []Message, stream bool, tools []Tool) (CallResponse, *resty.Response, error) {
-	// 防止 https://example/
+	// 防止 https://example ，统一为 https://example/
 	baseurl := inBaseUrl
 	if inBaseUrl[len(inBaseUrl)-1] != '/' {
 		baseurl += "/"
 	}
 
+	// tools 去重，防止出现重名 tool
 	toolHashMap := make(map[string]bool)
 	for _, item := range tools {
 		_, ok := toolHashMap[item.Name]
@@ -82,6 +83,7 @@ func frontCall(httpClient *resty.Client, inBaseUrl string, apiKey string, model 
 		toolHashMap[item.Name] = true
 	}
 
+	// 合并同侧的 user 和 assistant 消息
 	currentRole := ClaudeMessageRoleUser
 	requestMessages := []Message{}
 
@@ -105,6 +107,7 @@ func frontCall(httpClient *resty.Client, inBaseUrl string, apiKey string, model 
 		requestMessages[len(requestMessages)-1].Content = newContent
 	}
 
+	// 构造请求发送，并获取响应
 	res := CallResponse{}
 
 	requestBody := CallRequest{
@@ -121,6 +124,7 @@ func frontCall(httpClient *resty.Client, inBaseUrl string, apiKey string, model 
 		SetHeader("x-api-key", apiKey).
 		SetBody(requestBody)
 
+	//控制是否为流式相应，若为非流式，则返回预设的响应结构，若为流式，则保留原始响应，交由上层函数处理
 	if stream {
 		httpRequest.SetDoNotParseResponse(true)
 	} else {
@@ -128,6 +132,7 @@ func frontCall(httpClient *resty.Client, inBaseUrl string, apiKey string, model 
 	}
 	httpRes, err := httpRequest.Post(baseurl + "v1/messages")
 
+	// 解析响应错误
 	if httpRes.StatusCode() != 200 {
 		httpBody, _ := io.ReadAll(httpRes.Body)
 		defer httpRes.Body.Close()
@@ -140,11 +145,13 @@ func frontCall(httpClient *resty.Client, inBaseUrl string, apiKey string, model 
 }
 
 func (c *ClaudeClient) Call(model string, messages []Message, tools []Tool) ([]Message, error) {
+	// 发送请求，获取响应信息
 	res, _, err := frontCall(c.httpClient, c.baseUrl, c.apiKey, model, messages, false, tools)
 	if err != nil {
 		return []Message{}, err
 	}
 
+	// 将响应信息解析并转化为对应的 ContentBlock 返回
 	resMessages := []Message{}
 	for _, item := range res.Content {
 		itemMap, ok := item.(map[string]interface{})
@@ -166,7 +173,6 @@ func (c *ClaudeClient) Call(model string, messages []Message, tools []Tool) ([]M
 					Text: itemMap["text"].(string),
 				},
 			})
-		//增加了思考的返回
 		case "thinking":
 			resMessages = append(resMessages, Message{
 				Role: ClaudeMessageRoleAssistant,
@@ -195,16 +201,19 @@ func (c *ClaudeClient) Call(model string, messages []Message, tools []Tool) ([]M
 }
 
 func (c *ClaudeClient) CallStream(model string, messages []Message, tools []Tool, dealFunc func(Message) bool) ([]Message, error) {
+	// 发送请求，获取响应信息
 	_, originHttpRes, err := frontCall(c.httpClient, c.baseUrl, c.apiKey, model, messages, true, tools)
 	if err != nil {
 		return []Message{}, err
 	}
 
+	// 构建 reader 读取 SSE 响应内容
 	reader := bufio.NewReader(originHttpRes.Body)
 	defer originHttpRes.Body.Close()
 
 	resMessages := []Message{}
 
+	// 解析 SSE 响应内容，并将其转化为对应的 ContentBlock 返回
 	for {
 		eventStr, err := reader.ReadString('\n')
 		if stdError.Is(err, io.EOF) {
@@ -227,6 +236,7 @@ func (c *ClaudeClient) CallStream(model string, messages []Message, tools []Tool
 			}
 
 			switch dataDetail.Type {
+			// ContentBlock 的开始，根据类型创建对应的 ContentBlock，并添加在 resMessages 中
 			case "content_block_start":
 				resMessages = append(resMessages, Message{
 					Role: ClaudeMessageRoleAssistant,
@@ -256,6 +266,7 @@ func (c *ClaudeClient) CallStream(model string, messages []Message, tools []Tool
 
 				resMessages[len(resMessages)-1].Content = content
 
+			// ContentBlock 的增量更新，根据类型将增量内容添加在 resMessages 中对应的 ContentBlock 上
 			case "content_block_delta":
 				continueFlag := true
 				switch resMessages[len(resMessages)-1].Content.(type) {
@@ -305,6 +316,7 @@ func (c *ClaudeClient) CallStream(model string, messages []Message, tools []Tool
 			}
 		}
 	}
+	// 将 ToolUseBlock 中的 PartialJson 解析为 Input
 	for i := 0; i < len(resMessages); i++ {
 		if reflect.TypeOf(resMessages[i].Content) == reflect.TypeOf(ToolUseBlock{}) {
 			changeBlock := resMessages[i].Content.(ToolUseBlock)
