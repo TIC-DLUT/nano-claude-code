@@ -129,7 +129,7 @@ func TestCallWithImageBase64(t *testing.T) {
 	fmt.Println(message)
 }
 
-func TestCallStreamIamgeBase64(t *testing.T) {
+func TestCallStreamImageBase64(t *testing.T) {
 	client := newTestClient()
 	//从文件读取base64编码后的图片数据
 	base64data, err := os.ReadFile("test_data/base64.txt")
@@ -154,7 +154,7 @@ func TestCallStreamIamgeBase64(t *testing.T) {
 	fmt.Println("总消息", resMessages)
 }
 
-func TestCallStreamIamgeUrl(t *testing.T) {
+func TestCallStreamImageUrl(t *testing.T) {
 	client := newTestClient()
 	resMessages, err := client.CallStream("claude-sonnet-4-6", []Message{
 		{
