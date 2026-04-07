@@ -25,6 +25,7 @@ type CallRequest struct {
 	Messages []Message `json:"messages"`
 	Stream   bool      `json:"stream"`
 	Tools    []Tool    `json:"tools"`
+	System   string    `json:"system,omitempty"`
 }
 
 type CallResponse struct {
@@ -66,7 +67,7 @@ type CallStreamResponse struct {
 	} `json:"delta"`
 }
 
-func frontCall(httpClient *resty.Client, inBaseUrl string, apiKey string, model string, messages []Message, stream bool, tools []Tool) (CallResponse, *resty.Response, error) {
+func frontCall(httpClient *resty.Client, inBaseUrl string, apiKey string, model string, messages []Message, stream bool, tools []Tool, system string) (CallResponse, *resty.Response, error) {
 	// 防止 https://example ，统一为 https://example/
 	baseurl := inBaseUrl
 	if inBaseUrl[len(inBaseUrl)-1] != '/' {
@@ -114,6 +115,7 @@ func frontCall(httpClient *resty.Client, inBaseUrl string, apiKey string, model 
 		Stream:   stream,
 		Model:    model,
 		Messages: requestMessages,
+		System:   system,
 	}
 
 	if len(tools) != 0 {
@@ -144,9 +146,9 @@ func frontCall(httpClient *resty.Client, inBaseUrl string, apiKey string, model 
 	return res, httpRes, err
 }
 
-func (c *ClaudeClient) Call(model string, messages []Message, tools []Tool) ([]Message, error) {
+func (c *ClaudeClient) Call(model string, system string, messages []Message, tools []Tool) ([]Message, error) {
 	// 发送请求，获取响应信息
-	res, _, err := frontCall(c.httpClient, c.baseUrl, c.apiKey, model, messages, false, tools)
+	res, _, err := frontCall(c.httpClient, c.baseUrl, c.apiKey, model, messages, false, tools, system)
 	if err != nil {
 		return []Message{}, err
 	}
@@ -200,9 +202,9 @@ func (c *ClaudeClient) Call(model string, messages []Message, tools []Tool) ([]M
 	return resMessages, nil
 }
 
-func (c *ClaudeClient) CallStream(model string, messages []Message, tools []Tool, dealFunc func(Message) bool) ([]Message, error) {
+func (c *ClaudeClient) CallStream(model string, system string, messages []Message, tools []Tool, dealFunc func(Message) bool) ([]Message, error) {
 	// 发送请求，获取响应信息
-	_, originHttpRes, err := frontCall(c.httpClient, c.baseUrl, c.apiKey, model, messages, true, tools)
+	_, originHttpRes, err := frontCall(c.httpClient, c.baseUrl, c.apiKey, model, messages, true, tools, system)
 	if err != nil {
 		return []Message{}, err
 	}

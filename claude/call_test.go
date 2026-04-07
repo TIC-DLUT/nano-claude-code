@@ -13,7 +13,7 @@ func newTestClient() *ClaudeClient {
 
 func TestCall(t *testing.T) {
 	client := newTestClient()
-	message, err := client.Call("claude-sonnet-4-6", []Message{
+	message, err := client.Call("claude-sonnet-4-6", "", []Message{
 		{
 			Role:    ClaudeMessageRoleUser,
 			Content: SingleStringMessage("你好"),
@@ -27,7 +27,7 @@ func TestCall(t *testing.T) {
 
 func TestCallStream(t *testing.T) {
 	client := newTestClient()
-	resMessages, err := client.CallStream("claude-sonnet-4-6", []Message{
+	resMessages, err := client.CallStream("claude-sonnet-4-6", "", []Message{
 		{
 			Role:    ClaudeMessageRoleUser,
 			Content: SingleStringMessage("你好"),
@@ -53,7 +53,7 @@ func TestCallWithTools(t *testing.T) {
 		fmt.Println("天气工具被调用", input)
 		return "天气良好"
 	})
-	message, err := client.Call("claude-sonnet-4-6", []Message{
+	message, err := client.Call("claude-sonnet-4-6", "", []Message{
 		{
 			Role:    ClaudeMessageRoleUser,
 			Content: SingleStringMessage("大连天气怎么样"),
@@ -76,7 +76,7 @@ func TestCallStreamWithTools(t *testing.T) {
 		fmt.Println("天气工具被调用", input)
 		return "天气良好"
 	})
-	message, err := client.CallStream("claude-sonnet-4-6", []Message{
+	message, err := client.CallStream("claude-sonnet-4-6", "", []Message{
 		{
 			Role:    ClaudeMessageRoleUser,
 			Content: SingleStringMessage("大连天气怎么样"),
@@ -93,7 +93,7 @@ func TestCallStreamWithTools(t *testing.T) {
 
 func TestCallWithImageUrl(t *testing.T) {
 	client := newTestClient()
-	message, err := client.Call("claude-sonnet-4-6", []Message{
+	message, err := client.Call("claude-sonnet-4-6", "", []Message{
 		{
 			Role:    ClaudeMessageRoleUser,
 			Content: SingleStringMessage("这个图片是啥"),
@@ -115,7 +115,7 @@ func TestCallWithImageBase64(t *testing.T) {
 		t.Error(err.Error())
 	}
 	base64dataStr := string(base64data)
-	message, err := client.Call("claude-sonnet-4-6", []Message{
+	message, err := client.Call("claude-sonnet-4-6", "", []Message{
 		{
 			Role:    ClaudeMessageRoleUser,
 			Content: SingleStringMessage("这个图片是啥"),
@@ -137,7 +137,7 @@ func TestCallStreamImageBase64(t *testing.T) {
 		t.Error(err.Error())
 	}
 	base64dataStr := string(base64data)
-	resMessages, err := client.CallStream("claude-sonnet-4-6", []Message{
+	resMessages, err := client.CallStream("claude-sonnet-4-6", "", []Message{
 		{
 			Role:    ClaudeMessageRoleUser,
 			Content: SingleStringMessage("这个图片是啥，尽可能说长一点"),
@@ -156,7 +156,7 @@ func TestCallStreamImageBase64(t *testing.T) {
 
 func TestCallStreamImageUrl(t *testing.T) {
 	client := newTestClient()
-	resMessages, err := client.CallStream("claude-sonnet-4-6", []Message{
+	resMessages, err := client.CallStream("claude-sonnet-4-6", "", []Message{
 		{
 			Role:    ClaudeMessageRoleUser,
 			Content: SingleStringMessage("这个图片是啥，尽可能说长一点"),

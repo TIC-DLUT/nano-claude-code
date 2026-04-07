@@ -16,7 +16,7 @@ func TestCallTools(t *testing.T) {
 		fmt.Println("天气工具被调用", input)
 		return "天气良好"
 	})
-	message, err := client.CallTools("claude-sonnet-4-6", []Message{
+	message, err := client.CallTools("claude-sonnet-4-6", "", []Message{
 		{
 			Role:    ClaudeMessageRoleUser,
 			Content: SingleStringMessage("大连天气怎么样"),
@@ -39,7 +39,7 @@ func TestCallStreamTools(t *testing.T) {
 		fmt.Println("天气工具被调用", input)
 		return "天气良好"
 	})
-	message, err := client.CallStreamTools("claude-sonnet-4-6", []Message{
+	message, err := client.CallStreamTools("claude-sonnet-4-6", "", []Message{
 		{
 			Role:    ClaudeMessageRoleUser,
 			Content: SingleStringMessage("大连天气怎么样"),

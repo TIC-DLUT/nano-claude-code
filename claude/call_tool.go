@@ -74,13 +74,13 @@ func toolCall(tools []Tool, messages []Message, resMessages []Message) (bool, []
 	return continueFlag, messages, toolMessages
 }
 
-func (c *ClaudeClient) CallTools(model string, messages []Message, tools []Tool) ([]Message, error) {
+func (c *ClaudeClient) CallTools(model string, system string, messages []Message, tools []Tool) ([]Message, error) {
 	var err error = nil
 	realResMessages := []Message{}
 	resMessages := []Message{}
 	// 循环调用，因为模型可能在两次或多次请求中均需要使用 Tools
 	for {
-		resMessages, err = c.Call(model, messages, tools)
+		resMessages, err = c.Call(model, system, messages, tools)
 		if err != nil {
 			return []Message{}, err
 		}
@@ -101,11 +101,11 @@ func (c *ClaudeClient) CallTools(model string, messages []Message, tools []Tool)
 	return realResMessages, err
 }
 
-func (c *ClaudeClient) CallStreamTools(model string, messages []Message, tools []Tool, dealFunc func(Message) bool) ([]Message, error) {
+func (c *ClaudeClient) CallStreamTools(model string, system string, messages []Message, tools []Tool, dealFunc func(Message) bool) ([]Message, error) {
 	realResMessages := []Message{}
 	// 循环调用，因为模型可能在两次或多次请求中均需要使用 Tools
 	for {
-		resMessages, err := c.CallStream(model, messages, tools, dealFunc)
+		resMessages, err := c.CallStream(model, system, messages, tools, dealFunc)
 		if err != nil {
 			return resMessages, err
 		}
