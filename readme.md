@@ -34,6 +34,7 @@
 ## 目录
 
 - [x] [day1：从零实现一个claude sdk](./docs/day1.md)
+- [x] [day2: 实现程序入口与简单 agent 调用](./docs/day2.md)
 
 ## Other Version
 
