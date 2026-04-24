@@ -2,6 +2,7 @@ package tools
 
 import (
 	"os"
+	"os/exec"
 
 	"github.com/TIC-DLUT/nano-claude-code/claude"
 )
@@ -23,4 +24,50 @@ func NewReadFileTool() (claude.Tool, error) {
 		}
 		return string(fileContent)
 	})
+}
+
+func NewBashTool() (claude.Tool, error) {
+	return claude.NewTool("bash",
+		"运行命令行工具，并返回运行结果。使用 golang 的 exec 包实现，不需要对平台做特殊处理",
+		map[string]claude.ToolPropertyDetail{
+			"command": {
+				Type:        "string",
+				Description: "需要运行的命令，不要包含参数内容，仅需要运行的命令的首个字段，其余字段放置在 args 中",
+			},
+			"args": {
+				Type:        "array",
+				Description: "运行命令的参数string列表",
+			},
+		},
+		[]string{"command"},
+		func(input map[string]any) string {
+			// 提取 command 字段
+			command, ok := input["command"].(string)
+			if !ok {
+				return "command 不能为空"
+			}
+
+			// 若存在 args 字段，则提取
+			var args = []string{}
+			argsFlag, ok := input["args"]
+			if ok {
+				argsInAny := argsFlag.([]any)
+				for _, argInAny := range argsInAny {
+					arg, ok := argInAny.(string)
+					if !ok {
+						return "如果需要使用参数，请使用 []string 类型"
+					}
+					args = append(args, arg)
+				}
+			}
+
+			// 运行完整指令，并获取结果
+			cmd := exec.Command(command, args...)
+			output, err := cmd.CombinedOutput()
+			if err != nil {
+				return "error: " + err.Error()
+			}
+
+			return string(output)
+		})
 }
