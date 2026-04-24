@@ -1,7 +1,6 @@
 package tools
 
 import (
-	"fmt"
 	"os"
 	"os/exec"
 
@@ -33,7 +32,7 @@ func NewBashTool() (claude.Tool, error) {
 		map[string]claude.ToolPropertyDetail{
 			"command": {
 				Type:        "string",
-				Description: "需要运行的命令",
+				Description: "需要运行的命令，不要包含参数内容，仅需要运行的命令的首个字段，其余字段放置在 args 中",
 			},
 			"args": {
 				Type:        "array",
@@ -43,7 +42,6 @@ func NewBashTool() (claude.Tool, error) {
 		[]string{"command"},
 		func(input map[string]any) string {
 			// 提取 command 字段
-			fmt.Println(input["command"].(string))
 			command, ok := input["command"].(string)
 			if !ok {
 				return "command 不能为空"
