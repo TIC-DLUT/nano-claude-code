@@ -5,6 +5,7 @@ import (
 
 	"github.com/TIC-DLUT/nano-claude-code/agent"
 	"github.com/TIC-DLUT/nano-claude-code/config"
+	"github.com/TIC-DLUT/nano-claude-code/tui"
 )
 
 func init() {
@@ -27,8 +28,9 @@ func main() {
 
 	if TUI_Mode {
 		// 启动tui
-
-		// TODO: 完成tui
+		if err := tui.Run(MainAgent); err != nil {
+			panic(err)
+		}
 	} else {
 		// 直接调用
 		DirectRun()
