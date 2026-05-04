@@ -5,14 +5,16 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
 )
 
 func (m *model) refreshViewport() {
 	m.viewport.SetContent(
-		lipgloss.NewStyle().Width(m.viewport.Width()).Render(m.renderMessages()),
+		m.applyHighlight(lipgloss.NewStyle().Width(m.viewport.Width()).Render(m.renderMessages())),
 	)
-	m.viewport.GotoBottom()
-	//TODO: 目前的话，在llm流式输出的时候会一直滚动到最底部，需要优化为在输出未完成时也可以用户进行滚动
+	if m.viewport.AtBottom() {
+		m.viewport.GotoBottom()
+	}
 }
 
 func (m *model) renderMessages() string {
@@ -41,6 +43,65 @@ func (m *model) renderMessages() string {
 	return b.String()
 }
 
+// 对选区范围内的字符加reverse反白；用ansi.Cut处理ANSI/CJK/emoji
+func (m *model) applyHighlight(content string) string {
+	if !m.hasSelection() {
+		return content
+	}
+	sLine, sCol, eLine, eCol := m.normalizedSelection()
+	lines := strings.Split(content, "\n")
+	if sLine >= len(lines) {
+		return content
+	}
+	eLine = min(eLine, len(lines)-1)
+	reverse := lipgloss.NewStyle().Reverse(true)
+	for i := sLine; i <= eLine; i++ {
+		line := lines[i]
+		w := ansi.StringWidth(line)
+		s, e := selectionCols(i, sLine, eLine, sCol, eCol, w)
+		if s < e {
+			lines[i] = ansi.Cut(line, 0, s) + reverse.Render(ansi.Cut(line, s, e)) + ansi.Cut(line, e, w)
+		}
+	}
+	return strings.Join(lines, "\n")
+}
+
+// 提取选择的纯文本字符串
+func (m *model) selectedText() string {
+	if !m.hasSelection() {
+		return ""
+	}
+	sLine, sCol, eLine, eCol := m.normalizedSelection()
+	lines := strings.Split(lipgloss.NewStyle().Width(m.viewport.Width()).Render(m.renderMessages()), "\n")
+	if sLine >= len(lines) {
+		return ""
+	}
+	eLine = min(eLine, len(lines)-1)
+	var b strings.Builder
+	for i := sLine; i <= eLine; i++ {
+		s, e := selectionCols(i, sLine, eLine, sCol, eCol, ansi.StringWidth(lines[i]))
+		if i > sLine {
+			b.WriteByte('\n')
+		}
+		if s < e {
+			b.WriteString(ansi.Strip(ansi.Cut(lines[i], s, e)))
+		}
+	}
+	return b.String()
+}
+
+// 计算第i行的选中的列范围 [s, e)
+func selectionCols(i, sLine, eLine, sCol, eCol, w int) (s, e int) {
+	s, e = 0, w
+	if i == sLine {
+		s = min(sCol, w)
+	}
+	if i == eLine {
+		e = min(eCol, w)
+	}
+	return min(s, e), e
+}
+
 func (m *model) View() tea.View {
 	viewportView := m.viewport.View()
 	separator := strings.Repeat("─", max(m.viewport.Width(), 1))
@@ -51,7 +112,7 @@ func (m *model) View() tea.View {
 	}
 
 	v := tea.NewView(viewportView + "\n" + separator + "\n" + m.textarea.View() + "\n" + separator + "\n" + footer)
-	v.MouseMode = tea.MouseModeCellMotion //tui接管鼠标控制！会导致无法进行鼠标选择复制，之后需处理
+	v.MouseMode = tea.MouseModeCellMotion
 	if c := m.textarea.Cursor(); c != nil {
 		c.Y += lipgloss.Height(viewportView) + 1
 		v.Cursor = c

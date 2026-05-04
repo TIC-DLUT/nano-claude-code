@@ -27,6 +27,13 @@ type model struct {
 	assistantDraft string //流式返回的文本
 	busy           bool   //agent是否正在处理请求
 	quitConfirm    bool   //二次退出确认
+
+	// 鼠标选区坐标
+	mouseDown    bool
+	selStartLine int
+	selStartCol  int
+	selEndLine   int
+	selEndCol    int
 }
 
 func newModel(agent *agent.Agent) *model {
@@ -50,11 +57,13 @@ func newModel(agent *agent.Agent) *model {
 	vp.MouseWheelDelta = 1 //鼠标滚轮灵敏度
 
 	return &model{
-		agent:     agent,
-		textarea:  ta,
-		viewport:  vp,
-		messages:  []string{},
-		sender:    lipgloss.NewStyle().Foreground(lipgloss.Color("5")),
-		assistant: lipgloss.NewStyle().Foreground(lipgloss.Color("2")),
+		agent:        agent,
+		textarea:     ta,
+		viewport:     vp,
+		messages:     []string{},
+		sender:       lipgloss.NewStyle(),
+		assistant:    lipgloss.NewStyle(),
+		selStartLine: -1, //-1 表示无选区
+		selEndLine:   -1,
 	}
 }
