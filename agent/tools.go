@@ -15,5 +15,11 @@ func (a *Agent) LoadTools() error {
 	}
 	a.tools = append(a.tools, filesysytem_writefile_tool)
 
+	filesystem_bash_tool, err := tools.NewBashTool()
+	if err != nil {
+		return err
+	}
+	a.tools = append(a.tools, filesystem_bash_tool)
+
 	return nil
 }
