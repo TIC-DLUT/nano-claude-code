@@ -9,6 +9,13 @@ func (a *Agent) LoadTools() error {
 		return err
 	}
 	a.tools = append(a.tools, filesystem_readfile_tool)
+  
+	filesystem_editfile_tool, err := tools.NewEditFileTool()
+	if err != nil {
+		return err
+	}
+	a.tools = append(a.tools, filesystem_editfile_tool)
+  
 	filesysytem_writefile_tool, err := tools.NewWriteFileTool()
 	if err != nil {
 		return err
