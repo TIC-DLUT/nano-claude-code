@@ -43,58 +43,12 @@ func newConfigFile(configDir string) error {
 	fmt.Println("First time use requires configuring LLM parameters")
 	fmt.Println()
 
-	// 获取 BaseURL
-	fmt.Print("Please enter API Base URL (press Enter for official API): ")
-	var baseURL string
-	fmt.Scanf("%s", &baseURL)
-	if baseURL == "" {
-		baseURL = "https://api.anthropic.com"
-		fmt.Println("Using default address: https://api.anthropic.com")
-	}
+	var config Config
 
-	// 获取 API Key
-	var apiKey string
-	for {
-		fmt.Print("Please enter API Key: ")
-		fmt.Scanf("%s", &apiKey)
-		if apiKey == "" {
-			fmt.Println("API Key cannot be empty, please try again")
-		} else {
-			break
-		}
-	}
-
-	// 获取 Model
-	var model string
-	for {
-		fmt.Print("Please enter model ID: ")
-		fmt.Scanf("%s", &model)
-		if model == "" {
-			fmt.Println("Model ID cannot be empty, please try again")
-		} else {
-			break
-		}
-	}
+	newConfigInputInit(&config)
 
 	//构建文本内容
-	type Config struct {
-		LLM struct {
-			BaseURL string `json:"baseurl"`
-			APIKey  string `json:"apikey"`
-			Model   string `json:"model"`
-		} `json:"llm"`
-	}
-	configContent, err := json.MarshalIndent(Config{
-		LLM: struct {
-			BaseURL string `json:"baseurl"`
-			APIKey  string `json:"apikey"`
-			Model   string `json:"model"`
-		}{
-			BaseURL: baseURL,
-			APIKey:  apiKey,
-			Model:   model,
-		},
-	}, "", "  ")
+	configContent, err := json.MarshalIndent(config, "", "  ")
 	if err != nil {
 		return customErrors.ConfigFileWriteError
 	}
