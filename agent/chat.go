@@ -7,23 +7,35 @@ import (
 
 func (a *Agent) ChatStream(message string, callback func(string)) {
 	lastToolCallID := ""
+	messages, err := a.sessionManager.BuildSessionContext()
+	if err != nil {
+		panic(err)
+	}
+	newMessage := claude.Message{
+		Role:    claude.ClaudeMessageRoleUser,
+		Content: claude.SingleStringMessage(message),
+	}
 
-	a.apiClient.CallStreamTools(viper.GetString("llm.model"), GetNowSystemPrompt(), []claude.Message{
-		{
-			Role:    claude.ClaudeMessageRoleUser,
-			Content: claude.SingleStringMessage(message),
-		},
-	}, a.tools, func(m claude.Message) bool {
-		switch m.Content.(type) {
-		case claude.TextBlock:
-			callback(m.Content.(claude.TextBlock).Text)
-		case claude.ToolUseBlock:
-			tooluse := m.Content.(claude.ToolUseBlock)
-			if tooluse.ID != lastToolCallID {
-				lastToolCallID = tooluse.ID
-				callback("\n[tool_use] " + tooluse.Name + "\n")
+	messages = append(messages, newMessage)
+	a.sessionManager.Append(newMessage)
+
+	resMessages, err := a.apiClient.CallStreamTools(viper.GetString("llm.model"), GetNowSystemPrompt(), messages,
+		a.tools, func(m claude.Message) bool {
+			switch m.Content.(type) {
+			case claude.TextBlock:
+				callback(m.Content.(claude.TextBlock).Text)
+			case claude.ToolUseBlock:
+				tooluse := m.Content.(claude.ToolUseBlock)
+				if tooluse.ID != lastToolCallID {
+					lastToolCallID = tooluse.ID
+					callback("\n[tool_use] " + tooluse.Name + "\n")
+				}
 			}
-		}
-		return true
-	})
+			return true
+		})
+	if err != nil {
+		panic(err)
+	}
+
+	a.sessionManager.Append(resMessages...)
 }
