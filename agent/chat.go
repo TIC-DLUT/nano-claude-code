@@ -19,7 +19,7 @@ func (a *Agent) ChatStream(message string, callback func(string)) {
 	messages = append(messages, newMessage)
 	a.sessionManager.Append(newMessage)
 
-	resMessages, err := a.apiClient.CallStreamTools(viper.GetString("llm.model"), GetNowSystemPrompt(), messages,
+	resMessages, _, err := a.apiClient.CallStreamTools(viper.GetString("llm.model"), GetNowSystemPrompt(), messages,
 		a.tools, func(m claude.Message) bool {
 			switch m.Content.(type) {
 			case claude.TextBlock:

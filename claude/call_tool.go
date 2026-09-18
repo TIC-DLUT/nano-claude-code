@@ -74,15 +74,16 @@ func toolCall(tools []Tool, messages []Message, resMessages []Message) (bool, []
 	return continueFlag, messages, toolMessages
 }
 
-func (c *ClaudeClient) CallTools(model string, system string, messages []Message, tools []Tool) ([]Message, error) {
+func (c *ClaudeClient) CallTools(model string, system string, messages []Message, tools []Tool) ([]Message, Usage, error) {
 	var err error = nil
 	realResMessages := []Message{}
 	resMessages := []Message{}
+	usage := Usage{}
 	// 循环调用，因为模型可能在两次或多次请求中均需要使用 Tools
 	for {
-		resMessages, err = c.Call(model, system, messages, tools)
+		resMessages, usage, err = c.Call(model, system, messages, tools)
 		if err != nil {
-			return []Message{}, err
+			return []Message{}, Usage{}, err
 		}
 
 		messages = append(messages, resMessages...)
@@ -98,19 +99,22 @@ func (c *ClaudeClient) CallTools(model string, system string, messages []Message
 			break
 		}
 	}
-	return realResMessages, err
+	return realResMessages, usage, err
 }
 
-func (c *ClaudeClient) CallStreamTools(model string, system string, messages []Message, tools []Tool, dealFunc func(Message) bool) ([]Message, error) {
+func (c *ClaudeClient) CallStreamTools(model string, system string, messages []Message, tools []Tool, dealFunc func(Message) bool) ([]Message, Usage, error) {
 	realResMessages := []Message{}
+	usage := Usage{}
 	// 循环调用，因为模型可能在两次或多次请求中均需要使用 Tools
 	for {
-		resMessages, err := c.CallStream(model, system, messages, tools, dealFunc)
+		resMessages, resUsage, err := c.CallStream(model, system, messages, tools, dealFunc)
 		if err != nil {
-			return resMessages, err
+			return resMessages, usage, err
 		}
 		messages = append(messages, resMessages...)
 		realResMessages = append(realResMessages, resMessages...)
+		usage.InputTokens += resUsage.InputTokens
+		usage.OutputTokens += resUsage.OutputTokens
 
 		// 执行 ToolUse
 		continueFlag := false
@@ -121,5 +125,5 @@ func (c *ClaudeClient) CallStreamTools(model string, system string, messages []M
 			break
 		}
 	}
-	return realResMessages, nil
+	return realResMessages, usage, nil
 }

@@ -28,6 +28,17 @@ type CallRequest struct {
 	System   string    `json:"system,omitempty"`
 }
 
+type Usage struct {
+	InputTokens              int `json:"input_tokens"`
+	CacheCreationInputTokens int `json:"cache_creation_input_tokens"`
+	CacheReadInputTokens     int `json:"cache_read_input_tokens"`
+	CacheCreation            struct {
+		Ephemeral5MInputTokens int `json:"ephemeral_5m_input_tokens"`
+		Ephemeral1HInputTokens int `json:"ephemeral_1h_input_tokens"`
+	} `json:"cache_creation"`
+	OutputTokens int `json:"output_tokens"`
+}
+
 type CallResponse struct {
 	Model        string        `json:"model"`
 	ID           string        `json:"id"`
@@ -36,16 +47,7 @@ type CallResponse struct {
 	Content      []interface{} `json:"content"`
 	StopReason   string        `json:"stop_reason"`
 	StopSequence interface{}   `json:"stop_sequence"`
-	Usage        struct {
-		InputTokens              int `json:"input_tokens"`
-		CacheCreationInputTokens int `json:"cache_creation_input_tokens"`
-		CacheReadInputTokens     int `json:"cache_read_input_tokens"`
-		CacheCreation            struct {
-			Ephemeral5MInputTokens int `json:"ephemeral_5m_input_tokens"`
-			Ephemeral1HInputTokens int `json:"ephemeral_1h_input_tokens"`
-		} `json:"cache_creation"`
-		OutputTokens int `json:"output_tokens"`
-	} `json:"usage"`
+	Usage        Usage         `json:"usage"`
 }
 
 type CallStreamResponse struct {
@@ -65,6 +67,9 @@ type CallStreamResponse struct {
 		PartialJson    string `json:"partial_json"`
 		SignatureDelta string `json:"signature_delta"`
 	} `json:"delta"`
+	Message struct {
+		Usage Usage `json:"usage"`
+	} `json:"message"`
 }
 
 func frontCall(httpClient *resty.Client, inBaseUrl string, apiKey string, model string, messages []Message, stream bool, tools []Tool, system string) (CallResponse, *resty.Response, error) {
@@ -146,11 +151,11 @@ func frontCall(httpClient *resty.Client, inBaseUrl string, apiKey string, model 
 	return res, httpRes, err
 }
 
-func (c *ClaudeClient) Call(model string, system string, messages []Message, tools []Tool) ([]Message, error) {
+func (c *ClaudeClient) Call(model string, system string, messages []Message, tools []Tool) ([]Message, Usage, error) {
 	// 发送请求，获取响应信息
 	res, _, err := frontCall(c.httpClient, c.baseUrl, c.apiKey, model, messages, false, tools, system)
 	if err != nil {
-		return []Message{}, err
+		return []Message{}, Usage{}, err
 	}
 
 	// 将响应信息解析并转化为对应的 ContentBlock 返回
@@ -158,12 +163,12 @@ func (c *ClaudeClient) Call(model string, system string, messages []Message, too
 	for _, item := range res.Content {
 		itemMap, ok := item.(map[string]interface{})
 		if !ok {
-			return []Message{}, errors.ClaudeClientCallFormatError
+			return []Message{}, Usage{}, errors.ClaudeClientCallFormatError
 		}
 
 		messageType, ok := itemMap["type"].(string)
 		if !ok {
-			return []Message{}, errors.ClaudeClientCallFormatError
+			return []Message{}, Usage{}, errors.ClaudeClientCallFormatError
 		}
 
 		switch messageType {
@@ -195,18 +200,18 @@ func (c *ClaudeClient) Call(model string, system string, messages []Message, too
 				},
 			})
 		default:
-			return []Message{}, errors.ClaudeClientCallFormatError
+			return []Message{}, Usage{}, errors.ClaudeClientCallFormatError
 		}
 	}
 
-	return resMessages, nil
+	return resMessages, res.Usage, nil
 }
 
-func (c *ClaudeClient) CallStream(model string, system string, messages []Message, tools []Tool, dealFunc func(Message) bool) ([]Message, error) {
+func (c *ClaudeClient) CallStream(model string, system string, messages []Message, tools []Tool, dealFunc func(Message) bool) ([]Message, Usage, error) {
 	// 发送请求，获取响应信息
 	_, originHttpRes, err := frontCall(c.httpClient, c.baseUrl, c.apiKey, model, messages, true, tools, system)
 	if err != nil {
-		return []Message{}, err
+		return []Message{}, Usage{}, err
 	}
 
 	// 构建 reader 读取 SSE 响应内容
@@ -214,6 +219,7 @@ func (c *ClaudeClient) CallStream(model string, system string, messages []Messag
 	defer originHttpRes.Body.Close()
 
 	resMessages := []Message{}
+	usage := Usage{}
 
 	// 解析 SSE 响应内容，并将其转化为对应的 ContentBlock 返回
 	for {
@@ -222,7 +228,7 @@ func (c *ClaudeClient) CallStream(model string, system string, messages []Messag
 			break
 		}
 		if err != nil {
-			return []Message{}, err
+			return []Message{}, Usage{}, err
 		}
 
 		if strings.Trim(eventStr, " ") == "" {
@@ -238,6 +244,10 @@ func (c *ClaudeClient) CallStream(model string, system string, messages []Messag
 			}
 
 			switch dataDetail.Type {
+			case "message_start":
+				usage.InputTokens = dataDetail.Message.Usage.InputTokens
+			case "message_delta":
+				usage.OutputTokens = dataDetail.Message.Usage.OutputTokens
 			// ContentBlock 的开始，根据类型创建对应的 ContentBlock，并添加在 resMessages 中
 			case "content_block_start":
 				resMessages = append(resMessages, Message{
@@ -313,7 +323,7 @@ func (c *ClaudeClient) CallStream(model string, system string, messages []Messag
 					})
 				}
 				if !continueFlag {
-					return resMessages, nil
+					return resMessages, usage, nil
 				}
 			}
 		}
@@ -325,11 +335,11 @@ func (c *ClaudeClient) CallStream(model string, system string, messages []Messag
 			inputMap := make(map[string]any)
 			err := json.Unmarshal([]byte(changeBlock.PartialJson), &inputMap)
 			if err != nil {
-				return resMessages, errors.ClaudeToolStreamPartParseError
+				return resMessages, usage, errors.ClaudeToolStreamPartParseError
 			}
 			changeBlock.Input = inputMap
 			resMessages[i].Content = changeBlock
 		}
 	}
-	return resMessages, nil
+	return resMessages, usage, nil
 }
